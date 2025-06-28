@@ -7,16 +7,32 @@ from matplotlib.lines import Line2D
 import sys
 from datetime import datetime
 
-# Загрузка изображения циферблата
-try:
-    dial_img = mpimg.imread('dial.bmp')
-except FileNotFoundError:
-    sys.exit("Ошибка: файл 'dial.png' не найден в текущей директории")
+
+# Определение файла циферблата в зависимости от скорости
+def get_dial_filename(speed_s):
+    if speed_s < 0:
+        try:
+            return 'dial_reverse.bmp'
+        except FileNotFoundError:
+            sys.exit("Ошибка: файл 'dial_reverse.bmp' не найден")
+    else:
+        try:
+            return 'dial.bmp'
+        except FileNotFoundError:
+            sys.exit("Ошибка: файл 'dial.bmp' не найден")
+
 
 # Ввод параметров
 print("Введите коэффициенты скорости относительно реальных часов:")
-speed_c = float(input("Скорость циферблата за 1 минуту (0 = стоит): "))
+speed_c = float(input("Скорость циферблата за 1 минуту (0 = стоит, отрицательные значения для обратного вращения): "))
 speed_s = float(input("Скорость секундной стрелки (1 = как реальные часы): "))
+
+# Загрузка изображения циферблата
+dial_filename = get_dial_filename(speed_s)
+try:
+    dial_img = mpimg.imread(dial_filename)
+except FileNotFoundError:
+    sys.exit(f"Ошибка: файл '{dial_filename}' не найден в текущей директории")
 
 # Константы
 SECONDS_PER_HOUR = 3600
@@ -24,10 +40,14 @@ SECONDS_PER_MINUTE = 60
 HOURS_PER_REV = 12
 
 # Расчет угловых скоростей (градусы/секунду)
-omega_c = speed_c * 360 / SECONDS_PER_HOUR  # Циферблат
+omega_c = abs(speed_c) * 360 / SECONDS_PER_HOUR  # Циферблат (используем абсолютное значение)
 omega_s = speed_s * 360 / SECONDS_PER_MINUTE  # Секундная стрелка
 omega_m = omega_s / SECONDS_PER_MINUTE  # Минутная стрелка
 omega_h = omega_m / HOURS_PER_REV  # Часовая стрелка
+
+# Учитываем направление вращения циферблата
+if speed_c < 0:
+    omega_c = -omega_c
 
 # Создание фигуры
 fig, ax = plt.subplots(figsize=(10, 10))
@@ -50,7 +70,7 @@ ax.add_line(hour_hand)
 
 # Функция для расчета углов на момент времени
 def calculate_angles(elapsed_seconds):
-    angle_c = -omega_c * elapsed_seconds % 360  # Циферблат (вращается в обратную сторону)
+    angle_c = -omega_c * elapsed_seconds % 360  # Циферблат
     angle_s = omega_s * elapsed_seconds % 360  # Секундная стрелка
     angle_m = omega_m * elapsed_seconds % 360  # Минутная стрелка
     angle_h = omega_h * elapsed_seconds % 360  # Часовая стрелка
