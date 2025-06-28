@@ -18,16 +18,16 @@ print("Введите коэффициенты скорости относите
 speed_c = float(input("Скорость циферблата за 1 минуту (0 = стоит): "))
 speed_s = float(input("Скорость секундной стрелки (1 = как реальные часы): "))
 
-# Реальные скорости (градусы/секунду)
-REAL_SEC_PER_HOUR = 3600
-REAL_SEC_PER_MIN = 60
-REAL_HOURS_PER_REV = 12
+# Константы
+SECONDS_PER_HOUR = 3600
+SECONDS_PER_MINUTE = 60
+HOURS_PER_REV = 12
 
-# Рассчет фактических скоростей (градусы/секунду)
-omega_c = speed_c * 360 / REAL_SEC_PER_HOUR  # Циферблат
-omega_s = speed_s * 360 / REAL_SEC_PER_MIN  # Секундная стрелка
-omega_m = omega_s / REAL_SEC_PER_MIN  # Минутная стрелка
-omega_h = omega_m / REAL_HOURS_PER_REV  # Часовая стрелка
+# Расчет угловых скоростей (градусы/секунду)
+omega_c = speed_c * 360 / SECONDS_PER_HOUR  # Циферблат
+omega_s = speed_s * 360 / SECONDS_PER_MINUTE  # Секундная стрелка
+omega_m = omega_s / SECONDS_PER_MINUTE  # Минутная стрелка
+omega_h = omega_m / HOURS_PER_REV  # Часовая стрелка
 
 # Создание фигуры
 fig, ax = plt.subplots(figsize=(10, 10))
@@ -47,32 +47,55 @@ ax.add_line(second_hand)
 ax.add_line(minute_hand)
 ax.add_line(hour_hand)
 
-# Начальное время
+
+# Функция для расчета углов на момент времени
+def calculate_angles(elapsed_seconds):
+    angle_c = -omega_c * elapsed_seconds % 360  # Циферблат (вращается в обратную сторону)
+    angle_s = omega_s * elapsed_seconds % 360  # Секундная стрелка
+    angle_m = omega_m * elapsed_seconds % 360  # Минутная стрелка
+    angle_h = omega_h * elapsed_seconds % 360  # Часовая стрелка
+    return angle_c, angle_s, angle_m, angle_h
+
+
+# Получаем текущее время и вычисляем "эпоху" - количество секунд с начала дня
+now = datetime.now()
+midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+elapsed_since_midnight = (now - midnight).total_seconds()
+
+# Вычисляем начальные углы
+initial_angle_c, initial_angle_s, initial_angle_m, initial_angle_h = calculate_angles(elapsed_since_midnight)
+
+# Устанавливаем начальное положение циферблата и стрелок
+dial.set_transform(Affine2D().rotate_deg(initial_angle_c) + ax.transData)
+
+
+def get_hand_coords(angle, length, dial_angle):
+    rad = np.radians(angle - dial_angle)
+    return [0, np.sin(rad) * length], [0, np.cos(rad) * length]
+
+
+second_hand.set_data(*get_hand_coords(initial_angle_s, 0.95, initial_angle_c))
+minute_hand.set_data(*get_hand_coords(initial_angle_m, 0.8, initial_angle_c))
+hour_hand.set_data(*get_hand_coords(initial_angle_h, 0.6, initial_angle_c))
+
+# Запоминаем время начала анимации
 start_time = datetime.now()
 
 
 def update(frame):
-    # Реальное прошедшее время в секундах
-    elapsed = (datetime.now() - start_time).total_seconds()
+    # Вычисляем время, прошедшее с начала анимации
+    elapsed_animation = (datetime.now() - start_time).total_seconds()
+    # Общее время = время с полуночи + время анимации
+    total_elapsed = elapsed_since_midnight + elapsed_animation
 
-    # Углы поворота (в градусах)
-    angle_c = -omega_c * elapsed % 360  # Циферблат
-    angle_s = omega_s * elapsed % 360  # Секундная
-    angle_m = omega_m * elapsed % 360  # Минутная
-    angle_h = omega_h * elapsed % 360  # Часовая
+    # Вычисляем текущие углы
+    angle_c, angle_s, angle_m, angle_h = calculate_angles(total_elapsed)
 
-    # Вращение циферблата
+    # Обновляем положение циферблата и стрелок
     dial.set_transform(Affine2D().rotate_deg(angle_c) + ax.transData)
-
-    # Положение стрелок (учитываем вращение циферблата)
-    def get_hand_coords(angle, length):
-        rad = np.radians(angle - angle_c)
-        return [0, np.sin(rad) * length], [0, np.cos(rad) * length]
-
-    # Обновление стрелок
-    second_hand.set_data(*get_hand_coords(angle_s, 0.95))
-    minute_hand.set_data(*get_hand_coords(angle_m, 0.8))
-    hour_hand.set_data(*get_hand_coords(angle_h, 0.6))
+    second_hand.set_data(*get_hand_coords(angle_s, 0.95, angle_c))
+    minute_hand.set_data(*get_hand_coords(angle_m, 0.8, angle_c))
+    hour_hand.set_data(*get_hand_coords(angle_h, 0.6, angle_c))
 
     return [dial, second_hand, minute_hand, hour_hand]
 
