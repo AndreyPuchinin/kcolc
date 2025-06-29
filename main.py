@@ -6,122 +6,145 @@ from matplotlib.transforms import Affine2D
 from matplotlib.lines import Line2D
 import sys
 from datetime import datetime
+from matplotlib.text import Text
+
+# РАСКОММЕНТАРИТЬ для создания ехе (пробить в терминале pyinstaller --onefile main.py)
+# sys.stdin = open('CONIN$', 'r')  # Для Windows
 
 
-# Определение файла циферблата в зависимости от скорости
-def get_dial_filename(speed_s):
-    if speed_s < 0:
+def hide_console():
+    if sys.platform == 'win32':
+        import ctypes
+        ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 0)
+
+
+def input_float(prompt):
+    while True:
         try:
-            return 'dial_reverse.bmp'
-        except FileNotFoundError:
-            sys.exit("Ошибка: файл 'dial_reverse.bmp' не найден")
-    else:
-        try:
-            return 'dial.bmp'
-        except FileNotFoundError:
-            sys.exit("Ошибка: файл 'dial.bmp' не найден")
+            return float(input(prompt))
+        except ValueError:
+            print("Ошибка: введите число")
 
 
 # Ввод параметров
-print("Введите коэффициенты скорости относительно реальных часов:")
-speed_c = float(input("Скорость циферблата за 1 минуту (0 = стоит, отрицательные значения для обратного вращения): "))
-speed_s = float(input("Скорость секундной стрелки (1 = как реальные часы): "))
+print("=== Настройки часов ===")
+speed_c = input_float("Скорость циферблата (0=стоит, <0=обратное вращение): ")
+speed_s = input_float("Скорость секундной стрелки (1=реальная скорость): ")
+
+# Скрываем консоль после ввода
+hide_console()
 
 # Загрузка изображения циферблата
-dial_filename = get_dial_filename(speed_s)
 try:
-    dial_img = mpimg.imread(dial_filename)
+    dial_img = mpimg.imread('dial_reverse.bmp' if speed_s < 0 else 'dial.bmp')
 except FileNotFoundError:
-    sys.exit(f"Ошибка: файл '{dial_filename}' не найден в текущей директории")
+    sys.exit("Ошибка: файл циферблата (dial.bmp или dial_reverse.bmp) не найден")
 
 # Константы
 SECONDS_PER_HOUR = 3600
 SECONDS_PER_MINUTE = 60
 HOURS_PER_REV = 12
 
-# Расчет угловых скоростей (градусы/секунду)
-omega_c = abs(speed_c) * 360 / SECONDS_PER_HOUR  # Циферблат (используем абсолютное значение)
-omega_s = speed_s * 360 / SECONDS_PER_MINUTE  # Секундная стрелка
-omega_m = omega_s / SECONDS_PER_MINUTE  # Минутная стрелка
-omega_h = omega_m / HOURS_PER_REV  # Часовая стрелка
-
-# Учитываем направление вращения циферблата
-if speed_c < 0:
-    omega_c = -omega_c
+# Расчёт угловых скоростей
+omega_c = (abs(speed_c) * 360 / SECONDS_PER_HOUR) * (-1 if speed_c < 0 else 1)
+omega_s = speed_s * 360 / SECONDS_PER_MINUTE
+omega_m = omega_s / SECONDS_PER_MINUTE
+omega_h = omega_m / HOURS_PER_REV
 
 # Создание фигуры
-fig, ax = plt.subplots(figsize=(10, 10))
+fig, ax = plt.subplots(figsize=(8, 8))
 ax.set_xlim(-1.2, 1.2)
 ax.set_ylim(-1.2, 1.2)
 ax.axis('off')
+plt.title(f"Часы (скорость циферблата: {speed_c}x, скорость секундной стрелки:{speed_s}x)", pad=20)
 
 # Отображение циферблата
 dial = ax.imshow(dial_img, extent=[-1, 1, -1, 1])
 
-# Создание стрелок
-second_hand = Line2D([0, 0], [0, 0.95], color='red', linewidth=2)
-minute_hand = Line2D([0, 0], [0, 0.8], color='green', linewidth=4)
-hour_hand = Line2D([0, 0], [0, 0.6], color='blue', linewidth=6)
+# Создание укороченных стрелок
+second_hand = Line2D([0, 0], [0, 0.7], color='red', linewidth=1.5)
+minute_hand = Line2D([0, 0], [0, 0.6], color='green', linewidth=3)
+hour_hand = Line2D([0, 0], [0, 0.4], color='blue', linewidth=4.5)
 
-ax.add_line(second_hand)
-ax.add_line(minute_hand)
-ax.add_line(hour_hand)
+for hand in [second_hand, minute_hand, hour_hand]:
+    ax.add_line(hand)
 
-
-# Функция для расчета углов на момент времени
-def calculate_angles(elapsed_seconds):
-    angle_c = -omega_c * elapsed_seconds % 360  # Циферблат
-    angle_s = omega_s * elapsed_seconds % 360  # Секундная стрелка
-    angle_m = omega_m * elapsed_seconds % 360  # Минутная стрелка
-    angle_h = omega_h * elapsed_seconds % 360  # Часовая стрелка
-    return angle_c, angle_s, angle_m, angle_h
+# Список для хранения объектов текста
+number_texts = []
 
 
-# Получаем текущее время и вычисляем "эпоху" - количество секунд с начала дня
+# Добавление статичных цифр (1-12) с правильным поворотом
+def add_static_numbers(ax, reverse=False):
+    radius = 0.85  # Радиус расположения цифр
+    for hour in range(1, 13):
+        angle = np.radians(90 + hour * 30) if not reverse else np.radians(90 + hour * 30)
+        x = radius * np.cos(angle)
+        y = radius * np.sin(angle)
+
+        # Угол поворота текста (в градусах)
+        text_angle = (hour * 30) % 360
+        if reverse:
+            text_angle = (-hour * 30) % 360
+
+        color = 'red' if hour == 12 else 'black'
+        # Создаем текст с поворотом и сохраняем в список
+        t = ax.text(x, y, str(hour), color=color, ha='center', va='center',
+                    fontsize=14, fontweight='bold', rotation=text_angle)
+        number_texts.append(t)
+
+
+# Добавляем цифры в зависимости от направления вращения
+add_static_numbers(ax, reverse=speed_c < 0)
+
+# Поднимаем цифры на передний план
+for text in number_texts:
+    text.set_zorder(10)
+
+# Инициализация времени
 now = datetime.now()
 midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
-elapsed_since_midnight = (now - midnight).total_seconds()
-
-# Вычисляем начальные углы
-initial_angle_c, initial_angle_s, initial_angle_m, initial_angle_h = calculate_angles(elapsed_since_midnight)
-
-# Устанавливаем начальное положение циферблата и стрелок
-dial.set_transform(Affine2D().rotate_deg(initial_angle_c) + ax.transData)
+elapsed = (now - midnight).total_seconds()
 
 
-def get_hand_coords(angle, length, dial_angle):
+def calculate_angles(t):
+    return (
+        -omega_c * t % 360,
+        omega_s * t % 360,
+        omega_m * t % 360,
+        omega_h * t % 360
+    )
+
+
+def get_hand_coords(angle, dial_angle, length):
     rad = np.radians(angle - dial_angle)
     return [0, np.sin(rad) * length], [0, np.cos(rad) * length]
 
 
-second_hand.set_data(*get_hand_coords(initial_angle_s, 0.95, initial_angle_c))
-minute_hand.set_data(*get_hand_coords(initial_angle_m, 0.8, initial_angle_c))
-hour_hand.set_data(*get_hand_coords(initial_angle_h, 0.6, initial_angle_c))
+# Установка начального положения
+angle_c, angle_s, angle_m, angle_h = calculate_angles(elapsed)
+dial.set_transform(Affine2D().rotate_deg(angle_c) + ax.transData)
 
-# Запоминаем время начала анимации
+second_hand.set_data(*get_hand_coords(angle_s, angle_c, 0.7))
+minute_hand.set_data(*get_hand_coords(angle_m, angle_c, 0.6))
+hour_hand.set_data(*get_hand_coords(angle_h, angle_c, 0.4))
+
+# Анимация
 start_time = datetime.now()
 
 
 def update(frame):
-    # Вычисляем время, прошедшее с начала анимации
-    elapsed_animation = (datetime.now() - start_time).total_seconds()
-    # Общее время = время с полуночи + время анимации
-    total_elapsed = elapsed_since_midnight + elapsed_animation
+    current_time = elapsed + (datetime.now() - start_time).total_seconds()
+    angle_c, angle_s, angle_m, angle_h = calculate_angles(current_time)
 
-    # Вычисляем текущие углы
-    angle_c, angle_s, angle_m, angle_h = calculate_angles(total_elapsed)
-
-    # Обновляем положение циферблата и стрелок
     dial.set_transform(Affine2D().rotate_deg(angle_c) + ax.transData)
-    second_hand.set_data(*get_hand_coords(angle_s, 0.95, angle_c))
-    minute_hand.set_data(*get_hand_coords(angle_m, 0.8, angle_c))
-    hour_hand.set_data(*get_hand_coords(angle_h, 0.6, angle_c))
+    second_hand.set_data(*get_hand_coords(angle_s, angle_c, 0.7))
+    minute_hand.set_data(*get_hand_coords(angle_m, angle_c, 0.6))
+    hour_hand.set_data(*get_hand_coords(angle_h, angle_c, 0.4))
 
-    return [dial, second_hand, minute_hand, hour_hand]
+    return [dial, second_hand, minute_hand, hour_hand] + number_texts
 
 
-# Запуск анимации
+# Запуск
 ani = FuncAnimation(fig, update, interval=20, blit=True, cache_frame_data=False)
-
 plt.tight_layout()
 plt.show()
